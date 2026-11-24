@@ -7,8 +7,7 @@
 //	go run . ascolta COM4          stampa "richiesta di turno" / "rilascio" a ogni pressione di B1
 //	go run . set COM4 APPROVED     cambia lo stato del LED (OFF, PENDING, APPROVED)
 //	go run . get COM4              stampa lo stato del LED (errore dopo 2 secondi senza risposta)
-//
-// Ogni comando apre la porta, fa una cosa sola e la chiude.
+//	go run . server COM4           avvia l'API su http://localhost:8081 (vedi server.go)
 package main
 
 import (
@@ -30,7 +29,8 @@ type Comando struct {
 	State   string `json:"state,omitempty"`
 }
 
-// RispostaLed è la risposta della scheda a GET_LED: {"led":"APPROVED"}
+// RispostaLed è la risposta della scheda a GET_LED: {"led":"APPROVED"}.
+// La stessa struct la usa anche il server per rispondere al browser.
 type RispostaLed struct {
 	Led string `json:"led"`
 }
@@ -75,6 +75,12 @@ func main() {
 		if err == nil {
 			fmt.Println("LED:", stato)
 		}
+	case "server":
+		if len(os.Args) < 3 {
+			uso()
+			os.Exit(1)
+		}
+		err = server(os.Args[2])
 	default:
 		uso()
 		os.Exit(1)
@@ -87,7 +93,7 @@ func main() {
 }
 
 func uso() {
-	fmt.Println("uso: go run . porte | ascolta PORTA | set PORTA STATO | get PORTA")
+	fmt.Println("uso: go run . porte | ascolta PORTA | set PORTA STATO | get PORTA | server PORTA")
 	fmt.Println("     STATO = OFF, PENDING oppure APPROVED")
 }
 
@@ -95,7 +101,7 @@ func uso() {
 func apri(nome string) (serial.Port, error) {
 	porta, err := serial.Open(nome, &serial.Mode{BaudRate: 115200})
 	if err != nil {
-		return nil, fmt.Errorf("non riesco ad aprire %s (la console di CubeIDE è ancora aperta?): %w", nome, err)
+		return nil, fmt.Errorf("non riesco ad aprire %s (è aperta da un altro programma?): %w", nome, err)
 	}
 	return porta, nil
 }
@@ -153,14 +159,14 @@ func set(nome, stato string) error {
 	}
 	defer porta.Close()
 
-	if err := scrivi(porta, Comando{Command: "SET_LED", State: stato}); err != nil {
+	if err := impostaStato(porta, stato); err != nil {
 		return err
 	}
 	fmt.Println("inviato: LED ->", stato)
 	return nil
 }
 
-// 2.4 — get: manda GET_LED e aspetta {"led":"..."} al massimo 2 secondi.
+// 2.4 — get: apre la porta, chiede lo stato, chiude.
 func get(nome string) (string, error) {
 	porta, err := apri(nome)
 	if err != nil {
@@ -168,7 +174,19 @@ func get(nome string) (string, error) {
 	}
 	defer porta.Close()
 
-	porta.ResetInputBuffer() // butto via eventuali righe vecchie
+	return chiediStato(porta)
+}
+
+// impostaStato manda {"command":"SET_LED","state":"..."} su una porta già aperta.
+// Lo usano sia "set" sia il server.
+func impostaStato(porta serial.Port, stato string) error {
+	return scrivi(porta, Comando{Command: "SET_LED", State: stato})
+}
+
+// chiediStato manda GET_LED su una porta già aperta e aspetta {"led":"..."}
+// al massimo 2 secondi. Lo usano sia "get" sia il server.
+func chiediStato(porta serial.Port) (string, error) {
+	porta.ResetInputBuffer() // butto via eventi vecchi del bottone ancora in coda
 	if err := scrivi(porta, Comando{Command: "GET_LED"}); err != nil {
 		return "", err
 	}
@@ -196,7 +214,7 @@ func scrivi(porta serial.Port, c Comando) error {
 	if _, err := porta.Write(append(dati, '\n')); err != nil {
 		return err
 	}
-	return porta.Drain() // aspetto che i byte siano davvero partiti prima di chiudere
+	return porta.Drain() // aspetto che i byte siano davvero partiti
 }
 
 // leggiRiga legge un byte alla volta fino a '\n', ma si arrende alla scadenza.

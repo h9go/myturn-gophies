@@ -1,0 +1,17 @@
+meta {
+  name: 5 stato sbagliato (400)
+  type: http
+  seq: 5
+}
+
+put {
+  url: http://localhost:8081/led
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "state": "BLU"
+  }
+}

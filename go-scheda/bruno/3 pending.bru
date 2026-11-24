@@ -1,0 +1,17 @@
+meta {
+  name: 3 pending
+  type: http
+  seq: 3
+}
+
+put {
+  url: http://localhost:8081/led
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "state": "PENDING"
+  }
+}

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MyTurn · GOPHIES</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --sfondo: #f3f1ec;
+    --carta: #ffffff;
+    --testo: #1d1d1b;
+    --tenue: #6b6a65;
+    --bordo: #d9d6cf;
+    --verde: #1fa463;
+    --rosso: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: var(--sfondo);
+    color: var(--testo);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main {
+    width: min(420px, 92vw);
+    background: var(--carta);
+    border: 1px solid var(--bordo);
+    border-radius: 14px;
+    padding: 28px 28px 22px;
+  }
+  h1 { font-size: 1.1rem; margin: 0 0 2px; }
+  .sotto { color: var(--tenue); font-size: .85rem; margin: 0 0 26px; }
+
+  .stato { display: flex; align-items: center; gap: 18px; margin-bottom: 26px; }
+  .led {
+    width: 46px; height: 46px; border-radius: 50%;
+    background: #cfccc4;
+    border: 3px solid #b9b5ab;
+    flex: none;
+  }
+  .led.acceso { background: var(--verde); border-color: #16804c; box-shadow: 0 0 18px rgba(31,164,99,.6); }
+  .led.lampeggia { animation: lampeggio .5s steps(1) infinite; }
+  @keyframes lampeggio { 50% { background: #cfccc4; border-color: #b9b5ab; box-shadow: none; } }
+  .nome-stato { font-size: 1.6rem; font-weight: 700; letter-spacing: .02em; }
+  .spiega { color: var(--tenue); font-size: .85rem; }
+
+  .pulsanti { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  button {
+    font: inherit; font-weight: 600; font-size: .9rem;
+    padding: 11px 0;
+    border-radius: 8px;
+    border: 1px solid var(--bordo);
+    background: #faf9f6;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--testo); }
+  button.attivo { background: var(--testo); color: #fff; border-color: var(--testo); }
+  button:disabled { opacity: .5; cursor: wait; }
+
+  .risposta {
+    margin-top: 22px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: .8rem;
+    background: #f7f6f2;
+    border: 1px solid var(--bordo);
+    border-radius: 8px;
+    padding: 10px 12px;
+    min-height: 2.6em;
+    word-break: break-all;
+  }
+  .risposta .metodo { color: var(--tenue); }
+  .risposta.errore { color: var(--rosso); border-color: #e7b8b2; background: #fdf3f1; }
+</style>
+</head>
+<body>
+<main>
+  <h1>MyTurn · scheda del gruppo GOPHIES</h1>
+  <p class="sotto">NUCLEO-L476RG · si aggiorna da sola ogni secondo</p>
+
+  <div class="stato">
+    <div id="led" class="led"></div>
+    <div>
+      <div id="nome" class="nome-stato">…</div>
+      <div id="spiega" class="spiega">collegamento alla scheda</div>
+    </div>
+  </div>
+
+  <div class="pulsanti">
+    <button data-stato="OFF">OFF</button>
+    <button data-stato="PENDING">PENDING</button>
+    <button data-stato="APPROVED">APPROVED</button>
+  </div>
+
+  <div id="risposta" class="risposta"></div>
+</main>
+
+<script>
+  const spiegazioni = {
+    OFF: "nessuna richiesta",
+    PENDING: "turno richiesto, in attesa",
+    APPROVED: "turno approvato"
+  };
+
+  // disegna lo stato ricevuto dall'API
+  function mostra(stato) {
+    const led = document.getElementById("led");
+    led.className = "led";
+    if (stato === "PENDING") led.classList.add("acceso", "lampeggia");
+    if (stato === "APPROVED") led.classList.add("acceso");
+    document.getElementById("nome").textContent = stato;
+    document.getElementById("spiega").textContent = spiegazioni[stato] || "";
+    document.querySelectorAll("button").forEach(b =>
+      b.classList.toggle("attivo", b.dataset.stato === stato));
+  }
+
+  // scrive in fondo la richiesta fatta e la risposta JSON del server
+  function scriviRisposta(metodo, status, testo, errore) {
+    const box = document.getElementById("risposta");
+    box.className = "risposta" + (errore ? " errore" : "");
+    box.innerHTML = "";
+    const m = document.createElement("span");
+    m.className = "metodo";
+    m.textContent = metodo + " /led → " + status + "  ";
+    box.append(m, document.createTextNode(testo));
+  }
+
+  // GET /led
+  let occupato = false;
+  async function leggi() {
+    if (occupato) return;          // non accavallo le richieste
+    occupato = true;
+    try {
+      const r = await fetch("/led");
+      const dati = await r.json();
+      if (r.ok) mostra(dati.led);
+      else scriviRisposta("GET", r.status, JSON.stringify(dati), true);
+    } catch (e) {
+      scriviRisposta("GET", "—", "il server non risponde", true);
+    } finally {
+      occupato = false;
+    }
+  }
+
+  // PUT /led con {"state": "..."}
+  async function cambia(stato) {
+    const pulsanti = document.querySelectorAll("button");
+    pulsanti.forEach(b => b.disabled = true);
+    try {
+      const r = await fetch("/led", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: stato })
+      });
+      const dati = await r.json();
+      scriviRisposta("PUT", r.status, JSON.stringify(dati), !r.ok);
+      if (r.ok) mostra(dati.led);
+    } catch (e) {
+      scriviRisposta("PUT", "—", "il server non risponde", true);
+    } finally {
+      pulsanti.forEach(b => b.disabled = false);
+    }
+  }
+
+  document.querySelectorAll("button").forEach(b =>
+    b.addEventListener("click", () => cambia(b.dataset.stato)));
+
+  leggi();
+  setInterval(leggi, 1000);
+</script>
+</body>
+</html>

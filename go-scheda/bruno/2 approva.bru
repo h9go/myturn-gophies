@@ -1,0 +1,17 @@
+meta {
+  name: 2 approva
+  type: http
+  seq: 2
+}
+
+put {
+  url: http://localhost:8081/led
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "state": "APPROVED"
+  }
+}
